@@ -131,8 +131,13 @@ class UndeadWallpaperService : WallpaperService() {
         private var pendingFadeInOnFirstFrame = false
         private var alphaAnimator: ValueAnimator? = null
         private var offsetDiagnosticShown = false
+        private var touchDiagnosticShown = false
         private val perScreenHandler = Handler(Looper.getMainLooper())
         private var fadeInSafetyRunnable: Runnable? = null
+        // Swipe-fallback tracking (for launchers that don't report scroll offsets)
+        private var swipeStartX = 0f
+        private var swipeStartY = 0f
+        private var swipeConsumed = false
 
         // Hardware Info
         private val isVivoDevice = Build.MANUFACTURER.equals("vivo", ignoreCase = true)
@@ -206,7 +211,10 @@ class UndeadWallpaperService : WallpaperService() {
 
             // VIVO AND CHINESE PHONES FIX: Never request touch events while in the system preview screen,
             // otherwise Vivo's OS sends the "Apply Wallpaper" button taps to us instead of the system.
-            val wantsTouchEvents = !isPreview && (doubleTapAction != WallpaperAction.NONE || tripleTapAction != WallpaperAction.NONE)
+            // Per-screen mode also needs touch events for its swipe fallback (used on launchers
+            // like HyperOS/Pixel that never report wallpaper scroll offsets).
+            val wantsTouchEvents = !isPreview &&
+                (isPerScreenMode || doubleTapAction != WallpaperAction.NONE || tripleTapAction != WallpaperAction.NONE)
 
             // ONLY tell the OS to change the touch state if it's different from the current state.
             if (isCurrentlyListeningForTouch != wantsTouchEvents) {
@@ -416,6 +424,10 @@ class UndeadWallpaperService : WallpaperService() {
             // the Android OS accidentally forwards to us anyway.
             // Most likely needed too for VIVO and CHINESE phones.
             if (!isCurrentlyListeningForTouch) return
+
+            // Per-screen swipe fallback: detect a horizontal swipe and change page
+            // directly, for launchers that don't report wallpaper scroll offsets.
+            if (isPerScreenMode) handlePerScreenSwipe(event)
 
             gestureManager.onTouchEvent(event)
         }
@@ -741,23 +753,31 @@ class UndeadWallpaperService : WallpaperService() {
             }
 
             currentPageIndex = targetIndex
+            swapToCurrentPageVideo()
+        }
 
-            val newUri = perScreenUriForPage(targetIndex)
+        /**
+         * Swaps playback to the video assigned to [currentPageIndex] and fades it in
+         * once its first frame renders. Assumes the bridge layer is already showing
+         * (video alpha at 0). Shared by the offset-driven and swipe-driven paths.
+         */
+        private fun swapToCurrentPageVideo() {
+            val newUri = perScreenUriForPage(currentPageIndex)
             if (newUri == null) {
                 // No video assigned/found for this page: leave the bridge image visible.
-                FileLogger.w(TAG, "Per-screen: no video for page $targetIndex")
+                FileLogger.w(TAG, "Per-screen: no video for page $currentPageIndex")
                 return
             }
 
             // In per-page image mode, swap the backdrop to the NEW page's image so it
             // shows behind the loading video.
             if (bridgeMode == BridgeMode.PER_PAGE_IMAGE) {
-                val name = slotForPage(targetIndex)?.bridgeImageFileName
+                val name = slotForPage(currentPageIndex)?.bridgeImageFileName
                 val bmp = imageFileManager.loadBitmap(name, screenWidthPx(), screenHeightPx())
                 if (bmp != null) renderer?.setStaticBitmap(bmp)
             }
 
-            FileLogger.i(TAG, "Per-screen: settled on page $targetIndex, swapping video.")
+            FileLogger.i(TAG, "Per-screen: showing page $currentPageIndex video.")
 
             loadedVideoUriString = newUri
             prefs.saveActiveVideoUri(newUri)
@@ -775,6 +795,64 @@ class UndeadWallpaperService : WallpaperService() {
             val safety = Runnable { fadeInPerScreenVideo() }
             fadeInSafetyRunnable = safety
             perScreenHandler.postDelayed(safety, PER_SCREEN_FADE_IN_TIMEOUT_MS)
+        }
+
+        /**
+         * Directly changes the visible page (swipe fallback for launchers that don't
+         * report scroll offsets). Hides the video behind the bridge layer, then swaps
+         * to the target page's video and fades it back in.
+         */
+        private fun goToPage(targetIndex: Int) {
+            if (screenSlots.size < 2) return
+            val idx = targetIndex.coerceIn(0, screenSlots.size - 1)
+            if (idx == currentPageIndex) return
+
+            // Show the bridge for the page we're leaving and hide the video instantly.
+            prepareBridgeForCurrentPage()
+            alphaAnimator?.cancel()
+            renderer?.setVideoAlpha(0f)
+            perScreenTransitionActive = true
+
+            currentPageIndex = idx
+            swapToCurrentPageVideo()
+        }
+
+        /**
+         * Detects a horizontal swipe across the wallpaper and advances/retreats one
+         * page. One swipe triggers at most one page change (until the finger lifts).
+         */
+        private fun handlePerScreenSwipe(event: MotionEvent?) {
+            if (event == null || screenSlots.size < 2) return
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    swipeStartX = event.x
+                    swipeStartY = event.y
+                    swipeConsumed = false
+                    // One-time confirmation that the launcher forwards touch to the
+                    // wallpaper (required for the swipe fallback to be possible at all).
+                    if (!touchDiagnosticShown) {
+                        touchDiagnosticShown = true
+                        FileLogger.i(TAG, "Per-screen: first touch event received.")
+                        Handler(Looper.getMainLooper()).post {
+                            Toast.makeText(baseContext, "Per-screen: touch received", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
+                    if (swipeConsumed) return
+                    val dx = event.x - swipeStartX
+                    val dy = event.y - swipeStartY
+                    // Detect as early as possible: launchers that page-scroll tend to
+                    // claim the gesture quickly, so we only get a few early MOVE events.
+                    val threshold = screenWidthPx() * 0.08f
+                    if (kotlin.math.abs(dx) > threshold && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
+                        swipeConsumed = true
+                        // Swipe left (dx<0) -> next page; swipe right -> previous page.
+                        val direction = if (dx < 0) 1 else -1
+                        goToPage(currentPageIndex + direction)
+                    }
+                }
+            }
         }
 
         @OptIn(UnstableApi::class)
@@ -795,6 +873,10 @@ class UndeadWallpaperService : WallpaperService() {
                 releasePlayer()
             }
 
+            // Read per-screen config first so updateTouchListeningState() below can
+            // enable touch events for the swipe fallback when per-screen is active.
+            refreshPerScreenConfig()
+
             // Allow the OS to send MotionEvents to this engine
             updateTouchListeningState()
 
@@ -809,7 +891,6 @@ class UndeadWallpaperService : WallpaperService() {
 
             // Load prefs
             currentPlaybackMode = prefs.getPlaybackMode()
-            refreshPerScreenConfig()
 
             hasPlaybackCompleted = false
 
