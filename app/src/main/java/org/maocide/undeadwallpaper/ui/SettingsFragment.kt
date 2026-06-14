@@ -8,6 +8,7 @@ import org.maocide.undeadwallpaper.BuildConfig
 import org.maocide.undeadwallpaper.data.ImageFileManager
 import org.maocide.undeadwallpaper.data.PreferencesManager
 import org.maocide.undeadwallpaper.data.VideoFileManager
+import org.maocide.undeadwallpaper.model.AccentColorMode
 import org.maocide.undeadwallpaper.model.BridgeMode
 import org.maocide.undeadwallpaper.model.PlaybackMode
 import org.maocide.undeadwallpaper.model.ScreenSlot
@@ -455,6 +456,16 @@ class SettingsFragment : Fragment() {
                 StatusBarColor.LIGHT -> binding.statusBarColorGroup.check(binding.statusBarLight.id)
             }
 
+            // Accent Color
+            val accentMode = preferencesManager.getAccentColorMode()
+            when (accentMode) {
+                AccentColorMode.AUTO -> binding.accentColorGroup.check(binding.accentAuto.id)
+                AccentColorMode.OFF -> binding.accentColorGroup.check(binding.accentOff.id)
+                AccentColorMode.CUSTOM -> binding.accentColorGroup.check(binding.accentCustom.id)
+            }
+            applyAccentCustomVisibility(accentMode)
+            updateAccentSwatch()
+
             // Load Video Preview and set the video as selected
             val savedUri = preferencesManager.getActiveVideoUri()
             if (savedUri != null) {
@@ -637,6 +648,31 @@ class SettingsFragment : Fragment() {
             requireContext().applicationContext.sendBroadcast(intent)
         }
 
+        // Accent Color
+        binding.accentColorGroup.setOnCheckedStateChangeListener { _, checkedIds ->
+            if (isUpdatingUi || checkedIds.isEmpty()) return@setOnCheckedStateChangeListener
+
+            val newMode = when (checkedIds[0]) {
+                binding.accentOff.id -> AccentColorMode.OFF
+                binding.accentCustom.id -> AccentColorMode.CUSTOM
+                else -> AccentColorMode.AUTO
+            }
+            preferencesManager.saveAccentColorMode(newMode)
+            applyAccentCustomVisibility(newMode)
+            broadcastAccentColorChanged()
+        }
+
+        binding.accentPickColorButton.setOnClickListener {
+            ColorPickerDialog.show(
+                requireContext(),
+                preferencesManager.getCustomAccentColor()
+            ) { color ->
+                preferencesManager.saveCustomAccentColor(color)
+                updateAccentSwatch()
+                broadcastAccentColorChanged()
+            }
+        }
+
         // Helper function for the warning Toast
         fun showGestureWarningIfNeeded() {
             if (!hasWarnedAboutGestures) {
@@ -767,6 +803,29 @@ class SettingsFragment : Fragment() {
             checkPermissionAndOpenFilePicker()
         }
 
+    }
+
+    // ---------------------------------------------------------------------
+    // Accent color UI
+    // ---------------------------------------------------------------------
+
+    /** Shows the custom color row only when the CUSTOM accent mode is selected. */
+    private fun applyAccentCustomVisibility(mode: AccentColorMode) {
+        binding.accentCustomContainer.visibility =
+            if (mode == AccentColorMode.CUSTOM) View.VISIBLE else View.GONE
+    }
+
+    /** Repaints the small preview swatch to the saved custom accent color. */
+    private fun updateAccentSwatch() {
+        binding.accentColorSwatch.setBackgroundColor(preferencesManager.getCustomAccentColor())
+    }
+
+    /** Lightweight notify (no player restart) — reuses the status-bar color action. */
+    private fun broadcastAccentColorChanged() {
+        val intent = Intent(UndeadWallpaperService.ACTION_STATUS_BAR_COLOR_CHANGED).apply {
+            setPackage(requireContext().packageName)
+        }
+        requireContext().applicationContext.sendBroadcast(intent)
     }
 
     // ---------------------------------------------------------------------

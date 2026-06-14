@@ -5,6 +5,7 @@ import org.maocide.undeadwallpaper.BuildConfig
 import org.maocide.undeadwallpaper.data.ImageFileManager
 import org.maocide.undeadwallpaper.data.PlaylistManager
 import org.maocide.undeadwallpaper.data.PreferencesManager
+import org.maocide.undeadwallpaper.model.AccentColorMode
 import org.maocide.undeadwallpaper.model.BridgeMode
 import org.maocide.undeadwallpaper.model.PlaybackMode
 import org.maocide.undeadwallpaper.model.ScalingMode
@@ -1306,16 +1307,27 @@ class UndeadWallpaperService : WallpaperService() {
         }
 
         override fun onComputeColors(): WallpaperColors? {
-            val mode = prefs.getStatusBarColor()
-            val cachedColors = getCachedColorsForActiveVideo() // Retrieve from model
+            val barMode = prefs.getStatusBarColor()
+            val accentMode = prefs.getAccentColorMode()
 
-            // AUTO MODE: Best case scenario.
-            // Give the OS the real video colors and let it figure out the contrast.
-            if (mode == StatusBarColor.AUTO) {
-                return cachedColors ?: super.onComputeColors()
+            // Select the base palette that drives the system accent / Material You theme.
+            // The status-bar icon-hint logic below then composes on top of this base.
+            val base: WallpaperColors? = when (accentMode) {
+                AccentColorMode.AUTO -> getCachedColorsForActiveVideo()
+                AccentColorMode.CUSTOM -> buildColorsFromInt(prefs.getCustomAccentColor())
+                // OFF: hand the OS no color so it keeps its default accent. When icons are
+                // forced we still need a neutral carrier for the hint to attach to (below).
+                AccentColorMode.OFF ->
+                    if (barMode == StatusBarColor.AUTO) null
+                    else buildColorsFromInt(Color.GRAY)
             }
 
-            val isLightText = (mode == StatusBarColor.LIGHT)
+            // AUTO STATUS-BAR ICONS: let the OS derive icon contrast from the base palette.
+            if (barMode == StatusBarColor.AUTO) {
+                return base ?: super.onComputeColors()
+            }
+
+            val isLightText = (barMode == StatusBarColor.LIGHT)
 
             // SAMSUNG CASE
             // Samsung ignores hints and averages colors. If a Samsung user forces a
@@ -1336,10 +1348,10 @@ class UndeadWallpaperService : WallpaperService() {
             }
 
             // STANDARD MODERN ANDROID (API 31+)
-            // Keep the beautiful real colors for Material You, but forcibly inject or
+            // Keep the accent palette for Material You, but forcibly inject or
             // remove the Dark Text hint based on the user's setting.
-            if (cachedColors != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                var hints = cachedColors.colorHints
+            if (base != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                var hints = base.colorHints
                 hints = if (!isLightText) {
                     hints or WallpaperColors.HINT_SUPPORTS_DARK_TEXT // Force Black Icons
                 } else {
@@ -1347,15 +1359,28 @@ class UndeadWallpaperService : WallpaperService() {
                 }
 
                 return WallpaperColors(
-                    cachedColors.primaryColor,
-                    cachedColors.secondaryColor,
-                    cachedColors.tertiaryColor,
+                    base.primaryColor,
+                    base.secondaryColor,
+                    base.tertiaryColor,
                     hints
                 )
             }
 
             // Fallback for standard Android APIs 27-30 (which don't support explicit hints)
-            return cachedColors ?: super.onComputeColors()
+            return base ?: super.onComputeColors()
+        }
+
+        /**
+         * Builds a WallpaperColors from a single ARGB color int. Only the primary color is
+         * supplied; Material You derives the full tonal palette from it.
+         */
+        private fun buildColorsFromInt(colorInt: Int): WallpaperColors {
+            val c = Color.valueOf(colorInt)
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                WallpaperColors(c, null, null, 0)
+            } else {
+                WallpaperColors(c, null, null)
+            }
         }
 
         @Deprecated("Deprecated in Java") // This is needed for older Android versions
