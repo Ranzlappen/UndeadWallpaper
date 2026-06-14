@@ -77,6 +77,7 @@ class SettingsFragment : Fragment() {
     private lateinit var imageFileManager: ImageFileManager
     private lateinit var recentFilesAdapter: RecentFilesAdapter
     private var screenSlotAdapter: ScreenSlotAdapter? = null
+    private var screenSlotTouchHelper: ItemTouchHelper? = null
     private val screenSlots = mutableListOf<ScreenSlot>()
     private var pendingImageSlotIndex = -1 // -1 means the shared bridge image
     private val recentFiles = mutableListOf<RecentFile>()
@@ -391,6 +392,9 @@ class SettingsFragment : Fragment() {
             recentFiles.clear()
             recentFiles.addAll(files)
             recentFilesAdapter.notifyDataSetChanged()
+            // Now that playlist thumbnails exist, refresh the slot rows so they show
+            // their video thumbnails (the slot adapter reads from recentFiles).
+            screenSlotAdapter?.notifyDataSetChanged()
         }
     }
 
@@ -482,6 +486,8 @@ class SettingsFragment : Fragment() {
             val isPerScreenEnabled = preferencesManager.isPerScreenEnabled()
             binding.switchPerScreen.isChecked = isPerScreenEnabled
             binding.layoutPerScreenOptions.visibility = if (isPerScreenEnabled) View.VISIBLE else View.GONE
+            // Hide controls per-screen mode overrides (no animation on initial sync).
+            applyPerScreenControlVisibility(isPerScreenEnabled, animate = false)
 
             val bridgeMode = preferencesManager.getBridgeMode()
             when (bridgeMode) {
@@ -725,6 +731,9 @@ class SettingsFragment : Fragment() {
             android.transition.TransitionManager.beginDelayedTransition(binding.cardPerScreen as android.view.ViewGroup)
             binding.layoutPerScreenOptions.visibility = if (isChecked) View.VISIBLE else View.GONE
 
+            // Hide/show the controls per-screen mode overrides.
+            applyPerScreenControlVisibility(isChecked, animate = true)
+
             broadcastPerScreenChanged()
         }
 
@@ -741,7 +750,7 @@ class SettingsFragment : Fragment() {
             binding.layoutSharedImage.visibility =
                 if (mode == BridgeMode.SHARED_IMAGE) View.VISIBLE else View.GONE
             screenSlotAdapter?.setBridgeMode(mode)
-            broadcastPerScreenChanged()
+            broadcastPerScreenConfigChanged()
         }
 
         binding.buttonPickSharedImage.setOnClickListener {
@@ -764,8 +773,33 @@ class SettingsFragment : Fragment() {
     // Per-screen wallpaper UI
     // ---------------------------------------------------------------------
 
+    /** Full re-init: used only when per-screen mode is enabled/disabled. */
     private fun broadcastPerScreenChanged() {
         val intent = Intent(UndeadWallpaperService.ACTION_PER_SCREEN_CHANGED).apply {
+            setPackage(requireContext().packageName)
+        }
+        requireContext().applicationContext.sendBroadcast(intent)
+    }
+
+    /**
+     * Hides the controls that per-screen mode silently overrides (global playback
+     * mode, start time, and the single-video preview/picker) so the UI isn't
+     * misleading. Restores them when per-screen is OFF. Chip selections are not
+     * cleared by toggling visibility, so they persist across ON/OFF.
+     */
+    private fun applyPerScreenControlVisibility(perScreenOn: Boolean, animate: Boolean) {
+        if (animate) {
+            android.transition.TransitionManager.beginDelayedTransition(binding.root as android.view.ViewGroup)
+        }
+        val v = if (perScreenOn) View.GONE else View.VISIBLE
+        binding.cardVideoPreview.visibility = v
+        binding.groupPlaybackMode.visibility = v
+        binding.groupStartTime.visibility = v
+    }
+
+    /** Lightweight live apply: bridge mode/image and slot edits (no player restart). */
+    private fun broadcastPerScreenConfigChanged() {
+        val intent = Intent(UndeadWallpaperService.ACTION_PER_SCREEN_CONFIG_CHANGED).apply {
             setPackage(requireContext().packageName)
         }
         requireContext().applicationContext.sendBroadcast(intent)
@@ -787,16 +821,47 @@ class SettingsFragment : Fragment() {
             screenSlots,
             imageFileManager,
             preferencesManager.getBridgeMode(),
+            videoThumbnailProvider = { fileName -> recentFiles.find { it.file.name == fileName }?.thumbnail },
             onChooseVideo = { index -> showVideoChooserDialog(index) },
             onChooseImage = { index ->
                 pendingImageSlotIndex = index
                 openImagePicker()
             },
-            onRemove = { index -> removeScreenSlot(index) }
+            onRemove = { index -> removeScreenSlot(index) },
+            onStartDrag = { viewHolder -> screenSlotTouchHelper?.startDrag(viewHolder) }
         )
         screenSlotAdapter = adapter
         binding.recyclerViewScreens.layoutManager = LinearLayoutManager(context)
         binding.recyclerViewScreens.adapter = adapter
+
+        // Drag-only reorder (deletion stays on the per-row remove button).
+        val callback = object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
+        ) {
+            override fun isLongPressDragEnabled(): Boolean = false
+
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                adapter.onItemMove(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                // Persist new order + refresh "Screen N" labels, then apply live.
+                saveScreenSlots()
+                adapter.notifyItemRangeChanged(0, adapter.itemCount)
+                broadcastPerScreenConfigChanged()
+            }
+        }
+        val touchHelper = ItemTouchHelper(callback)
+        screenSlotTouchHelper = touchHelper
+        touchHelper.attachToRecyclerView(binding.recyclerViewScreens)
     }
 
     private fun addScreenSlot() {
@@ -813,7 +878,7 @@ class SettingsFragment : Fragment() {
         screenSlotAdapter?.notifyItemRemoved(index)
         // Refresh the "Screen N" labels for the rows that shifted up.
         screenSlotAdapter?.notifyItemRangeChanged(index, screenSlots.size)
-        broadcastPerScreenChanged()
+        broadcastPerScreenConfigChanged()
     }
 
     private fun showVideoChooserDialog(index: Int) {
@@ -833,7 +898,7 @@ class SettingsFragment : Fragment() {
                     screenSlots[index] = screenSlots[index].copy(videoFileName = videos[which])
                     saveScreenSlots()
                     screenSlotAdapter?.notifyItemChanged(index)
-                    broadcastPerScreenChanged()
+                    broadcastPerScreenConfigChanged()
                 }
                 dialog.dismiss()
             }
@@ -881,7 +946,7 @@ class SettingsFragment : Fragment() {
                     screenSlotAdapter?.notifyItemChanged(idx)
                 }
             }
-            broadcastPerScreenChanged()
+            broadcastPerScreenConfigChanged()
         }
     }
 

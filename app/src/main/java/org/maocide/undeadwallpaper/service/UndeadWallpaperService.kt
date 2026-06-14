@@ -29,7 +29,6 @@ import android.os.Looper
 import android.os.UserManager
 import java.io.File
 import android.service.wallpaper.WallpaperService
-import android.util.Log
 import android.view.MotionEvent
 
 
@@ -37,7 +36,6 @@ import android.view.SurfaceHolder
 import androidx.core.content.ContextCompat
 import android.widget.Toast
 import androidx.annotation.OptIn
-import androidx.annotation.RequiresApi
 import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
@@ -46,13 +44,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
-import androidx.media3.exoplayer.upstream.DefaultAllocator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -62,7 +55,6 @@ import org.maocide.undeadwallpaper.model.VideoSettings
 import org.maocide.undeadwallpaper.model.WallpaperAction
 
 
-import kotlin.math.log
 import kotlin.random.Random
 
 
@@ -77,7 +69,10 @@ class UndeadWallpaperService : WallpaperService() {
         const val ACTION_STATUS_BAR_COLOR_CHANGED = "org.maocide.undeadwallpaper.STATUS_BAR_COLOR_CHANGED"
         const val ACTION_PLAYLIST_REORDERED = "org.maocide.undeadwallpaper.PLAYLIST_REORDERED"
         const val ACTION_VIDEO_SETTINGS_CHANGED = "org.maocide.undeadwallpaper.VIDEO_SETTINGS_CHANGED"
+        // Full re-init: master enable/disable of per-screen mode.
         const val ACTION_PER_SCREEN_CHANGED = "org.maocide.undeadwallpaper.PER_SCREEN_CHANGED"
+        // Lightweight live apply: bridge mode/image and slot edits (no player restart).
+        const val ACTION_PER_SCREEN_CONFIG_CHANGED = "org.maocide.undeadwallpaper.PER_SCREEN_CONFIG_CHANGED"
 
         // Duration of the per-screen video <-> bridge-image crossfade.
         private const val PER_SCREEN_FADE_MS = 120L
@@ -130,8 +125,6 @@ class UndeadWallpaperService : WallpaperService() {
         private var perScreenTransitionActive = false
         private var pendingFadeInOnFirstFrame = false
         private var alphaAnimator: ValueAnimator? = null
-        private var offsetDiagnosticShown = false
-        private var touchDiagnosticShown = false
         private val perScreenHandler = Handler(Looper.getMainLooper())
         private var fadeInSafetyRunnable: Runnable? = null
         // Swipe-fallback tracking (for launchers that don't report scroll offsets)
@@ -346,10 +339,15 @@ class UndeadWallpaperService : WallpaperService() {
                     }
 
                     ACTION_PER_SCREEN_CHANGED -> {
-                        FileLogger.i(TAG, "Broadcast received: Per-screen settings changed, full re-initialization requested.")
+                        FileLogger.i(TAG, "Broadcast received: Per-screen enabled/disabled, full re-initialization requested.")
                         isUserManuallyPaused = false
                         resetPlaybackTimeline()
                         initializePlayer()
+                    }
+
+                    ACTION_PER_SCREEN_CONFIG_CHANGED -> {
+                        FileLogger.i(TAG, "Broadcast received: Per-screen config changed (live apply).")
+                        applyPerScreenConfigLive()
                     }
 
                     Intent.ACTION_USER_UNLOCKED -> {
@@ -575,20 +573,6 @@ class UndeadWallpaperService : WallpaperService() {
             // Need at least two configured screens to transition between.
             if (screenSlots.size < 2) return
 
-            // One-time visible confirmation that the launcher actually delivers
-            // scroll offsets (the whole feature is impossible without them).
-            if (!offsetDiagnosticShown) {
-                offsetDiagnosticShown = true
-                FileLogger.i(TAG, "Per-screen: first offset event xOffset=$xOffset step=$xOffsetStep")
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(
-                        baseContext,
-                        "Per-screen: scroll detected (step=$xOffsetStep)",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-
             // Require a usable page step. For N home pages the launcher reports
             // step = 1/(N-1), so the valid range is (0, 1]. A step of 0 (or >1)
             // means the launcher isn't reporting real multi-page scrolling (e.g. a
@@ -618,6 +602,45 @@ class UndeadWallpaperService : WallpaperService() {
             screenSlots = prefs.getScreenSlots()
         }
 
+        /**
+         * Applies per-screen config changes (bridge mode/image, slot edits, reorder)
+         * WITHOUT restarting the player. Bridge changes are read live at the next
+         * transition, so they need no action here; only a change to the CURRENT page's
+         * resolved video triggers a lightweight cross-faded swap.
+         */
+        private fun applyPerScreenConfigLive() {
+            val oldUri = perScreenUriForPage(currentPageIndex)
+            refreshPerScreenConfig()
+            // Slots may have shrunk or reordered; keep the page index in range.
+            currentPageIndex = currentPageIndex.coerceIn(0, (screenSlots.size - 1).coerceAtLeast(0))
+
+            if (!isPerScreenMode || !isPlayerInitialized) return
+
+            val newUri = perScreenUriForPage(currentPageIndex)
+            if (newUri == null) {
+                // Current page's video was cleared/removed: keep what's playing rather
+                // than blanking to nothing.
+                FileLogger.w(TAG, "Per-screen live apply: current page has no video; keeping current playback.")
+                return
+            }
+            if (newUri != oldUri) {
+                hideVideoBehindBridgeForSwap()
+                swapToCurrentPageVideo()
+            }
+        }
+
+        /**
+         * Shows the bridge layer for the page we're leaving and instantly hides the
+         * video, so a swap can fade the new page's video in cleanly. Shared by the
+         * offset, swipe, and live-apply paths.
+         */
+        private fun hideVideoBehindBridgeForSwap() {
+            prepareBridgeForCurrentPage()
+            alphaAnimator?.cancel()
+            renderer?.setVideoAlpha(0f)
+            perScreenTransitionActive = true
+        }
+
         private fun screenWidthPx(): Int = baseContext.resources.displayMetrics.widthPixels
         private fun screenHeightPx(): Int = baseContext.resources.displayMetrics.heightPixels
 
@@ -642,7 +665,7 @@ class UndeadWallpaperService : WallpaperService() {
         }
 
         @OptIn(UnstableApi::class)
-        private fun bindPerScreenPage(keepCurrentPlayback: Boolean) {
+        private fun bindPerScreenPage() {
             val uriStr = loadedVideoUriString
             if (uriStr.isBlank()) return
             val dataSourceFactory = DefaultDataSource.Factory(baseContext)
@@ -652,7 +675,7 @@ class UndeadWallpaperService : WallpaperService() {
             // Each page's video simply loops in place; no auto-advance in per-screen mode.
             wallpaperPlayer.setRepeatMode(Player.REPEAT_MODE_ONE)
             wallpaperPlayer.setMediaSources(listOf(src))
-            wallpaperPlayer.seekTo(0, if (keepCurrentPlayback) wallpaperPlayer.currentPosition else 0L)
+            wallpaperPlayer.seekTo(0, 0L)
         }
 
         /**
@@ -747,9 +770,7 @@ class UndeadWallpaperService : WallpaperService() {
             // Page changed. If a fade-out never ran (launcher only reports settled
             // offsets), set up the bridge now and hide the video instantly.
             if (!perScreenTransitionActive) {
-                prepareBridgeForCurrentPage()
-                renderer?.setVideoAlpha(0f)
-                perScreenTransitionActive = true
+                hideVideoBehindBridgeForSwap()
             }
 
             currentPageIndex = targetIndex
@@ -782,7 +803,7 @@ class UndeadWallpaperService : WallpaperService() {
             loadedVideoUriString = newUri
             prefs.saveActiveVideoUri(newUri)
             resetPlaybackTimeline()
-            bindPerScreenPage(keepCurrentPlayback = false)
+            bindPerScreenPage()
             applyNonVisualSettings(getSettingsForUri(loadedVideoUriString))
             wallpaperPlayer.prepare()
             wallpaperPlayer.playWhenReady = isVisible
@@ -808,10 +829,7 @@ class UndeadWallpaperService : WallpaperService() {
             if (idx == currentPageIndex) return
 
             // Show the bridge for the page we're leaving and hide the video instantly.
-            prepareBridgeForCurrentPage()
-            alphaAnimator?.cancel()
-            renderer?.setVideoAlpha(0f)
-            perScreenTransitionActive = true
+            hideVideoBehindBridgeForSwap()
 
             currentPageIndex = idx
             swapToCurrentPageVideo()
@@ -828,15 +846,6 @@ class UndeadWallpaperService : WallpaperService() {
                     swipeStartX = event.x
                     swipeStartY = event.y
                     swipeConsumed = false
-                    // One-time confirmation that the launcher forwards touch to the
-                    // wallpaper (required for the swipe fallback to be possible at all).
-                    if (!touchDiagnosticShown) {
-                        touchDiagnosticShown = true
-                        FileLogger.i(TAG, "Per-screen: first touch event received.")
-                        Handler(Looper.getMainLooper()).post {
-                            Toast.makeText(baseContext, "Per-screen: touch received", Toast.LENGTH_SHORT).show()
-                        }
-                    }
                 }
                 MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
                     if (swipeConsumed) return
@@ -936,7 +945,7 @@ class UndeadWallpaperService : WallpaperService() {
 
             // Bind the media: single page video for per-screen, otherwise the playlist.
             if (isPerScreenMode) {
-                bindPerScreenPage(keepCurrentPlayback = false)
+                bindPerScreenPage()
             } else {
                 bindPlaylistToPlayer(keepCurrentPlayback = false)
             }
@@ -1258,6 +1267,7 @@ class UndeadWallpaperService : WallpaperService() {
                 addAction(ACTION_PLAYLIST_REORDERED)
                 addAction(ACTION_VIDEO_SETTINGS_CHANGED)
                 addAction(ACTION_PER_SCREEN_CHANGED)
+                addAction(ACTION_PER_SCREEN_CONFIG_CHANGED)
                 addAction(Intent.ACTION_USER_UNLOCKED)
             }
             // Registering the broadcast receiver with ContextCompat.RECEIVER_NOT_EXPORTED
@@ -1376,6 +1386,11 @@ class UndeadWallpaperService : WallpaperService() {
                 if (isPlayerInitialized) {
                     bindPlaylistToPlayer(keepCurrentPlayback = true)
                 }
+
+            } else if (action == ACTION_PER_SCREEN_CONFIG_CHANGED) {
+
+                FileLogger.i(TAG, "Command received -> Per-screen config changed (live apply).")
+                applyPerScreenConfigLive()
 
             }
 

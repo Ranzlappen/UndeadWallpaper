@@ -167,5 +167,7 @@
     <string name="per_screen_need_videos">Add videos to your playlist first.</string>
     <string name="per_screen_icon_description">Experimental</string>
     <string name="per_screen_thumbnail_description">Selected bridge image</string>
+    <string name="per_screen_drag_handle_description">Drag to reorder screen</string>
+    <string name="per_screen_video_thumbnail_description">Selected video</string>
 
 </resources>

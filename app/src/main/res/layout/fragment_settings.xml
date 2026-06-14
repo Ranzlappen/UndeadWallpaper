@@ -206,94 +206,107 @@
                     android:textColor="?attr/colorPrimary"
                     android:layout_marginBottom="8dp"/>
 
-                <!-- Playback Mode -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:text="@string/playback_mode_setting"
-                    android:visibility="visible" />
-
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/playback_mode_group"
+                <!-- Playback Mode (hidden when per-screen mode is ON) -->
+                <LinearLayout
+                    android:id="@+id/group_playback_mode"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    app:singleSelection="true"
-                    app:selectionRequired="true"
-                    app:chipSpacingHorizontal="8dp">
+                    android:orientation="vertical">
 
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/playback_mode_loop"
-                        style="@style/Widget.MaterialComponents.Chip.Choice"
+                    <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:checked="true"
-                        android:text="@string/playback_mode_loop"/>
+                        android:layout_marginTop="16dp"
+                        android:text="@string/playback_mode_setting"
+                        android:visibility="visible" />
 
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/playback_mode_oneshot"
-                        style="@style/Widget.MaterialComponents.Chip.Choice"
-                        android:layout_width="wrap_content"
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/playback_mode_group"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/playback_mode_oneshot"/>
+                        android:layout_marginTop="4dp"
+                        app:singleSelection="true"
+                        app:selectionRequired="true"
+                        app:chipSpacingHorizontal="8dp">
 
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/playback_mode_loop_all"
-                        style="@style/Widget.MaterialComponents.Chip.Choice"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/playback_mode_loop_all"/>
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/playback_mode_loop"
+                            style="@style/Widget.MaterialComponents.Chip.Choice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="@string/playback_mode_loop"/>
 
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/playback_mode_shuffle"
-                        style="@style/Widget.MaterialComponents.Chip.Choice"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/playback_mode_shuffle"/>
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/playback_mode_oneshot"
+                            style="@style/Widget.MaterialComponents.Chip.Choice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/playback_mode_oneshot"/>
 
-                </com.google.android.material.chip.ChipGroup>
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/playback_mode_loop_all"
+                            style="@style/Widget.MaterialComponents.Chip.Choice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/playback_mode_loop_all"/>
 
-                <!-- Start Time  -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/playback_mode_shuffle"
+                            style="@style/Widget.MaterialComponents.Chip.Choice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/playback_mode_shuffle"/>
 
-                    android:text="@string/start_time_label" />
+                    </com.google.android.material.chip.ChipGroup>
+                </LinearLayout>
 
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/start_time_group"
+                <!-- Start Time (hidden when per-screen mode is ON) -->
+                <LinearLayout
+                    android:id="@+id/group_start_time"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    app:singleSelection="true"
-                    app:selectionRequired="true"
-                    app:chipSpacingHorizontal="8dp">
+                    android:orientation="vertical">
 
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/start_time_resume"
-                        style="@style/Widget.MaterialComponents.Chip.Choice"
+                    <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:checked="true"
-                        android:text="@string/start_time_resume" />
+                        android:layout_marginTop="16dp"
+                        android:text="@string/start_time_label" />
 
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/start_time_restart"
-                        style="@style/Widget.MaterialComponents.Chip.Choice"
-                        android:layout_width="wrap_content"
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/start_time_group"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/start_time_restart" />
+                        android:layout_marginTop="4dp"
+                        app:singleSelection="true"
+                        app:selectionRequired="true"
+                        app:chipSpacingHorizontal="8dp">
 
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/start_time_random"
-                        style="@style/Widget.MaterialComponents.Chip.Choice"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/start_time_random" />
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/start_time_resume"
+                            style="@style/Widget.MaterialComponents.Chip.Choice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="@string/start_time_resume" />
 
-                </com.google.android.material.chip.ChipGroup>
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/start_time_restart"
+                            style="@style/Widget.MaterialComponents.Chip.Choice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/start_time_restart" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/start_time_random"
+                            style="@style/Widget.MaterialComponents.Chip.Choice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/start_time_random" />
+
+                    </com.google.android.material.chip.ChipGroup>
+                </LinearLayout>
 
                 <!-- Status Bar color -->
                 <TextView
