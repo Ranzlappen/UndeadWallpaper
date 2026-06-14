@@ -86,6 +86,22 @@
     <string name="status_bar_white_icons">White</string>
     <string name="status_bar_black_icons">Black</string>
 
+    <!-- Accent / System Theme Color Settings -->
+    <string name="accent_color_label">Accent Color</string>
+    <string name="accent_color_description">Controls the system accent color this wallpaper sets. Auto follows the video, Off keeps your system default, Custom uses a color you pick.</string>
+    <string name="accent_auto">Auto</string>
+    <string name="accent_off">Off</string>
+    <string name="accent_custom">Custom</string>
+    <string name="accent_pick_color">Pick color</string>
+
+    <!-- Color Picker Dialog -->
+    <string name="color_picker_title">Pick accent color</string>
+    <string name="color_picker_ok">OK</string>
+    <string name="color_picker_cancel">Cancel</string>
+    <string name="color_picker_red">Red</string>
+    <string name="color_picker_green">Green</string>
+    <string name="color_picker_blue">Blue</string>
+
     <!-- UI Headers & Sections -->
     <string name="custom_settings_header">Custom Settings</string>
     <string name="positioning_header">Positioning</string>

@@ -1,5 +1,6 @@
 package org.maocide.undeadwallpaper.data
 
+import org.maocide.undeadwallpaper.model.AccentColorMode
 import org.maocide.undeadwallpaper.model.PlaybackMode
 import org.maocide.undeadwallpaper.model.ScalingMode
 import org.maocide.undeadwallpaper.model.StartTime
@@ -50,6 +51,12 @@ class PreferencesManager(context: Context) {
         private const val KEY_ROTATION = "video_rotation"
 
         private const val KEY_STATUSBAR_COLOR = "statusbar_color"
+
+        private const val KEY_ACCENT_COLOR_MODE = "accent_color_mode"
+        private const val KEY_CUSTOM_ACCENT_COLOR = "custom_accent_color"
+
+        // Default custom accent matches the app's light_green (#3cdc84).
+        private const val DEFAULT_CUSTOM_ACCENT_COLOR = 0xFF3CDC84.toInt()
 
         private const val KEY_START_TIME = "start_time"
         private const val KEY_SPEED = "video_speed"
@@ -320,6 +327,28 @@ class PreferencesManager(context: Context) {
     fun getStatusBarColor(): StatusBarColor {
         val storedOrdinal = sharedPrefs.getInt(KEY_STATUSBAR_COLOR, StatusBarColor.AUTO.ordinal)
         return StatusBarColor.entries.getOrElse(storedOrdinal) { StatusBarColor.AUTO }
+    }
+
+    /**
+     * Saves the accent color mode controlling how the wallpaper influences the
+     * system accent / Material You theme color. Default is AUTO.
+     */
+    fun saveAccentColorMode(mode: AccentColorMode) {
+        sharedPrefs.edit { putInt(KEY_ACCENT_COLOR_MODE, mode.ordinal) }
+    }
+
+    fun getAccentColorMode(): AccentColorMode {
+        val storedOrdinal = sharedPrefs.getInt(KEY_ACCENT_COLOR_MODE, AccentColorMode.AUTO.ordinal)
+        return AccentColorMode.entries.getOrElse(storedOrdinal) { AccentColorMode.AUTO }
+    }
+
+    /** The user-picked custom accent color (ARGB int), used when mode is CUSTOM. */
+    fun saveCustomAccentColor(color: Int) {
+        sharedPrefs.edit { putInt(KEY_CUSTOM_ACCENT_COLOR, color) }
+    }
+
+    fun getCustomAccentColor(): Int {
+        return sharedPrefs.getInt(KEY_CUSTOM_ACCENT_COLOR, DEFAULT_CUSTOM_ACCENT_COLOR)
     }
 
     fun saveLoggingEnabled(enabled: Boolean) {
