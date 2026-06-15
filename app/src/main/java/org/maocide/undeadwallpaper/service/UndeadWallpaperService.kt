@@ -74,6 +74,8 @@ class UndeadWallpaperService : WallpaperService() {
         const val ACTION_PER_SCREEN_CHANGED = "org.maocide.undeadwallpaper.PER_SCREEN_CHANGED"
         // Lightweight live apply: bridge mode/image and slot edits (no player restart).
         const val ACTION_PER_SCREEN_CONFIG_CHANGED = "org.maocide.undeadwallpaper.PER_SCREEN_CONFIG_CHANGED"
+        // Lock-screen video enable/disable or selection changed: full re-init.
+        const val ACTION_LOCK_VIDEO_CHANGED = "org.maocide.undeadwallpaper.LOCK_VIDEO_CHANGED"
 
         // Duration of the per-screen video <-> bridge-image crossfade.
         private const val PER_SCREEN_FADE_MS = 120L
@@ -132,6 +134,16 @@ class UndeadWallpaperService : WallpaperService() {
         private var swipeStartX = 0f
         private var swipeStartY = 0f
         private var swipeConsumed = false
+
+        // Step-less offset tracking: some launchers report a moving xOffset but a
+        // zero xOffsetStep. We only trust a step-less offset once we've actually
+        // seen it move (so a constant resting value doesn't pick a wrong page).
+        private var lastSeenXOffset = -1f
+        private var sawOffsetMovement = false
+
+        // Lock-screen wallpaper state
+        private var lockVideoEnabled = false
+        private var isLockScreenActive = false
 
         // Hardware Info
         private val isVivoDevice = Build.MANUFACTURER.equals("vivo", ignoreCase = true)
@@ -349,6 +361,19 @@ class UndeadWallpaperService : WallpaperService() {
                     ACTION_PER_SCREEN_CONFIG_CHANGED -> {
                         FileLogger.i(TAG, "Broadcast received: Per-screen config changed (live apply).")
                         applyPerScreenConfigLive()
+                    }
+
+                    ACTION_LOCK_VIDEO_CHANGED -> {
+                        FileLogger.i(TAG, "Broadcast received: Lock-screen video config changed, re-initializing.")
+                        isUserManuallyPaused = false
+                        resetPlaybackTimeline()
+                        initializePlayer()
+                    }
+
+                    // Screen woke (likely on the lock screen) or the keyguard was just
+                    // dismissed: re-evaluate whether to show the lock or home video.
+                    Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                        evaluateLockStateAndMaybeSwitch()
                     }
 
                     Intent.ACTION_USER_UNLOCKED -> {
@@ -571,21 +596,37 @@ class UndeadWallpaperService : WallpaperService() {
             }
 
             if (!isPerScreenMode) return
+            // While the lock-screen video is showing, ignore home-screen scrolling.
+            if (isLockScreenActive) return
             // Need at least two configured screens to transition between.
             if (screenSlots.size < 2) return
 
-            // Require a usable page step. For N home pages the launcher reports
-            // step = 1/(N-1), so the valid range is (0, 1]. A step of 0 (or >1)
-            // means the launcher isn't reporting real multi-page scrolling (e.g. a
-            // resting offset of ~0.5 with step 0). In that case keep the video fully
-            // visible instead of getting stuck on the bridge image.
-            if (xOffsetStep <= 0f || xOffsetStep > 1f) {
+            // Track whether the launcher actually MOVES the offset. Some launchers
+            // report a moving xOffset with a zero xOffsetStep; others just sit at a
+            // constant resting value (e.g. ~0.5 with step 0). We only trust a
+            // step-less offset once we've seen it move, so a constant value can't
+            // pick a wrong page.
+            if (lastSeenXOffset >= 0f &&
+                kotlin.math.abs(xOffset - lastSeenXOffset) > PER_SCREEN_SETTLE_EPSILON) {
+                sawOffsetMovement = true
+            }
+            lastSeenXOffset = xOffset
+
+            // For N home pages a well-behaved launcher reports step = 1/(N-1), valid
+            // in (0, 1]. When the step is usable we use it directly; otherwise, if the
+            // offset is genuinely moving, we fall back to mapping the raw [0,1] offset
+            // across the configured pages so step-less launchers still page correctly.
+            val usableStep = xOffsetStep > 0f && xOffsetStep <= 1f
+            if (!usableStep && !sawOffsetMovement) {
+                // No page step and no movement: launcher isn't reporting multi-page
+                // scroll. Keep the video fully visible instead of bridging.
                 restoreVideoIfBridged()
                 return
             }
 
-            val page = Math.round(xOffset / xOffsetStep)
-            val settled = kotlin.math.abs(xOffset - page * xOffsetStep) < PER_SCREEN_SETTLE_EPSILON
+            val effectiveStep = if (usableStep) xOffsetStep else 1f / (screenSlots.size - 1)
+            val page = Math.round(xOffset / effectiveStep)
+            val settled = kotlin.math.abs(xOffset - page * effectiveStep) < PER_SCREEN_SETTLE_EPSILON
 
             if (settled) {
                 onSettledOnPage(page)
@@ -601,6 +642,50 @@ class UndeadWallpaperService : WallpaperService() {
             isPerScreenMode = prefs.isPerScreenEnabled()
             bridgeMode = prefs.getBridgeMode()
             screenSlots = prefs.getScreenSlots()
+        }
+
+        // ---- Lock-screen wallpaper helpers ----
+
+        /** Reads lock-screen config and the current keyguard state. */
+        private fun refreshLockConfig() {
+            lockVideoEnabled = prefs.isLockVideoEnabled()
+            isLockScreenActive = lockVideoEnabled && isKeyguardLocked()
+        }
+
+        private fun isKeyguardLocked(): Boolean {
+            return try {
+                val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+                km.isKeyguardLocked
+            } catch (e: Exception) {
+                FileLogger.w(TAG, "KeyguardManager unavailable; assuming unlocked.", e)
+                false
+            }
+        }
+
+        /** Resolves the lock-screen video URI, or null if disabled/unset/missing. */
+        private fun lockVideoUriString(): String? {
+            if (!lockVideoEnabled) return null
+            return uriForVideoFileName(prefs.getLockVideoFileName())
+        }
+
+        /**
+         * Re-checks the keyguard state and, if it crossed the lock/unlock boundary,
+         * re-initializes so the correct (lock vs home) video is shown. Cheap no-op
+         * when the lock-screen feature is off or nothing changed.
+         */
+        private fun evaluateLockStateAndMaybeSwitch() {
+            lockVideoEnabled = prefs.isLockVideoEnabled()
+            if (!lockVideoEnabled) return
+            // A lock video only helps if one is actually selected and present.
+            if (lockVideoUriString() == null) return
+
+            val locked = isKeyguardLocked()
+            if (locked == isLockScreenActive) return
+
+            isLockScreenActive = locked
+            FileLogger.i(TAG, "Lock state changed -> locked=$locked. Switching wallpaper video.")
+            resetPlaybackTimeline()
+            initializePlayer()
         }
 
         /**
@@ -842,6 +927,8 @@ class UndeadWallpaperService : WallpaperService() {
          */
         private fun handlePerScreenSwipe(event: MotionEvent?) {
             if (event == null || screenSlots.size < 2) return
+            // The lock-screen video takes over; don't page it with home swipes.
+            if (isLockScreenActive) return
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     swipeStartX = event.x
@@ -886,6 +973,8 @@ class UndeadWallpaperService : WallpaperService() {
             // Read per-screen config first so updateTouchListeningState() below can
             // enable touch events for the swipe fallback when per-screen is active.
             refreshPerScreenConfig()
+            // Re-check the lock-screen feature + current keyguard state.
+            refreshLockConfig()
 
             // Allow the OS to send MotionEvents to this engine
             updateTouchListeningState()
@@ -908,17 +997,27 @@ class UndeadWallpaperService : WallpaperService() {
             alphaAnimator?.cancel()
             perScreenTransitionActive = false
             pendingFadeInOnFirstFrame = false
+            lastSeenXOffset = -1f
+            sawOffsetMovement = false
             renderer?.setVideoAlpha(1f)
             renderer?.clearStatic()
 
-            val mediaUri: Uri? = if (isPerScreenMode) {
-                val perScreenUri = perScreenUriForPage(currentPageIndex) ?: getMediaUri()?.toString()
-                // Keep the persisted "active video" in sync with the current page so the
-                // visibility-change re-init check doesn't think the URI drifted.
-                if (perScreenUri != null) prefs.saveActiveVideoUri(perScreenUri)
-                perScreenUri?.toUri()
-            } else {
-                getMediaUri()
+            // The lock-screen video (when the keyguard is up) overrides home content.
+            val lockUri = if (isLockScreenActive) lockVideoUriString() else null
+            val mediaUri: Uri? = when {
+                lockUri != null -> {
+                    // Do NOT persist the lock video as the home "active video", so
+                    // unlocking restores the correct home wallpaper.
+                    lockUri.toUri()
+                }
+                isPerScreenMode -> {
+                    val perScreenUri = perScreenUriForPage(currentPageIndex) ?: getMediaUri()?.toString()
+                    // Keep the persisted "active video" in sync with the current page so the
+                    // visibility-change re-init check doesn't think the URI drifted.
+                    if (perScreenUri != null) prefs.saveActiveVideoUri(perScreenUri)
+                    perScreenUri?.toUri()
+                }
+                else -> getMediaUri()
             }
             loadedVideoUriString = mediaUri?.toString() ?: ""
 
@@ -938,14 +1037,17 @@ class UndeadWallpaperService : WallpaperService() {
             val initialVolume = activeSettings.getPerceivedVolume()
             speed = activeSettings.speed
 
-            // In per-screen mode each page is a single looping video (REPEAT_MODE_ONE).
-            val effectivePlaybackMode = if (isPerScreenMode) PlaybackMode.LOOP else currentPlaybackMode
+            // Per-screen pages and the lock-screen video are each a single looping
+            // video (REPEAT_MODE_ONE); only the normal playlist uses the real mode.
+            val effectivePlaybackMode =
+                if (isPerScreenMode || lockUri != null) PlaybackMode.LOOP else currentPlaybackMode
             wallpaperPlayer.initialize(null, initialVolume, speed, effectivePlaybackMode)
 
             if (!isPlayerInitialized) return
 
-            // Bind the media: single page video for per-screen, otherwise the playlist.
-            if (isPerScreenMode) {
+            // Bind the media: single looping video for the lock screen or a per-screen
+            // page, otherwise the normal playlist.
+            if (lockUri != null || isPerScreenMode) {
                 bindPerScreenPage()
             } else {
                 bindPlaylistToPlayer(keepCurrentPlayback = false)
@@ -1167,7 +1269,14 @@ class UndeadWallpaperService : WallpaperService() {
                 FileLogger.i(TAG, "onVisibilityChanged (Debounced): visible = $visible isPreview = $isPreview, playbackMode = $currentPlaybackMode")
 
                 if (visible) {
-                    val currentUriOnDisk = getMediaUri().toString()
+                    // Expected current video: the lock video when the keyguard is up,
+                    // otherwise the persisted home video. Comparing against the right
+                    // one avoids a redundant re-init on every wake while locked.
+                    val currentUriOnDisk = if (isLockScreenActive) {
+                        lockVideoUriString() ?: getMediaUri().toString()
+                    } else {
+                        getMediaUri().toString()
+                    }
                     val isSurfaceDead = surfaceHolder?.surface?.isValid != true
                     var wasJustInitialized = false
 
@@ -1269,7 +1378,11 @@ class UndeadWallpaperService : WallpaperService() {
                 addAction(ACTION_VIDEO_SETTINGS_CHANGED)
                 addAction(ACTION_PER_SCREEN_CHANGED)
                 addAction(ACTION_PER_SCREEN_CONFIG_CHANGED)
+                addAction(ACTION_LOCK_VIDEO_CHANGED)
                 addAction(Intent.ACTION_USER_UNLOCKED)
+                // Lock/unlock detection for the lock-screen video feature.
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
             }
             // Registering the broadcast receiver with ContextCompat.RECEIVER_NOT_EXPORTED
             // ensures it is secure across all API levels by preventing external intent injection.
@@ -1398,6 +1511,7 @@ class UndeadWallpaperService : WallpaperService() {
                 action == ACTION_VIDEO_URI_CHANGED ||
                 action == ACTION_VIDEO_SETTINGS_CHANGED ||
                 action == ACTION_PER_SCREEN_CHANGED ||
+                action == ACTION_LOCK_VIDEO_CHANGED ||
                 action == "android.wallpaper.reapply") {
 
                 FileLogger.i(TAG, "Command received -> Re-initializing player.")

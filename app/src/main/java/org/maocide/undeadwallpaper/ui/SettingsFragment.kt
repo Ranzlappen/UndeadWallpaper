@@ -509,6 +509,13 @@ class SettingsFragment : Fragment() {
             updateSharedImageThumbnail()
             setupScreenSlotsRecycler()
 
+            // Lock-screen wallpaper
+            val isLockVideoEnabled = preferencesManager.isLockVideoEnabled()
+            binding.switchLockScreen.isChecked = isLockVideoEnabled
+            binding.layoutLockScreenOptions.visibility =
+                if (isLockVideoEnabled) View.VISIBLE else View.GONE
+            updateLockVideoLabel()
+
             // Regardless of having a selected video or not, we need to load the recent files
             // into the RecyclerView adapter ONCE during UI initialization.
             loadRecentFiles()
@@ -805,11 +812,63 @@ class SettingsFragment : Fragment() {
             Toast.makeText(requireContext(), R.string.per_screen_applied, Toast.LENGTH_SHORT).show()
         }
 
+        // Lock-screen master toggle
+        binding.switchLockScreen.setOnCheckedChangeListener { _, isChecked ->
+            if (isUpdatingUi) return@setOnCheckedChangeListener
+
+            preferencesManager.setLockVideoEnabled(isChecked)
+            binding.layoutLockScreenOptions.visibility = if (isChecked) View.VISIBLE else View.GONE
+            broadcastLockVideoChanged()
+        }
+
+        binding.buttonChooseLockVideo.setOnClickListener {
+            showLockVideoChooserDialog()
+        }
+
         // Video Picker
         binding.buttonPickVideo.setOnClickListener {
             checkPermissionAndOpenFilePicker()
         }
 
+    }
+
+    // ---------------------------------------------------------------------
+    // Lock-screen wallpaper UI
+    // ---------------------------------------------------------------------
+
+    private fun broadcastLockVideoChanged() {
+        val intent = Intent(UndeadWallpaperService.ACTION_LOCK_VIDEO_CHANGED).apply {
+            setPackage(requireContext().packageName)
+        }
+        requireContext().applicationContext.sendBroadcast(intent)
+    }
+
+    /** Updates the caption under the lock-video picker with the selected file name. */
+    private fun updateLockVideoLabel() {
+        binding.textLockVideo.text = preferencesManager.getLockVideoFileName()
+            ?: getString(R.string.lock_screen_no_video)
+    }
+
+    private fun showLockVideoChooserDialog() {
+        val videos = preferencesManager.getPlaylistSettings().map { it.fileName }
+        if (videos.isEmpty()) {
+            Toast.makeText(requireContext(), R.string.per_screen_need_videos, Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val current = preferencesManager.getLockVideoFileName()
+        val checked = videos.indexOf(current)
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.lock_screen_select_video_title)
+            .setSingleChoiceItems(videos.toTypedArray(), checked) { dialog, which ->
+                preferencesManager.setLockVideoFileName(videos[which])
+                updateLockVideoLabel()
+                broadcastLockVideoChanged()
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     // ---------------------------------------------------------------------
