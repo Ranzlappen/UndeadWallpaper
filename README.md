@@ -17,6 +17,7 @@ This isn't just a clever pun on "live" wallpaper. The name **UndeadWallpaper** i
 * **Dynamic UI Colors (Material You):** Your phone, your vibe. As you set a video, the app extracts the dominant colors from your wallpaper and seamlessly themes your Android system to match. 
 * **Sleek Material 3 UI:** Wrapped in a custom "Zombie Glass" dark theme, everything from the tonal chips to the smooth bottom sheets is designed to look native, premium, and easy to use with one hand.
 * **Interactive Playlist:** Your recent files are a fully drag-and-drop playground. Swipe to delete, reorder on the fly, and hit `Loop All` or `Shuffle` modes for endless visual chaos. 
+* **Separate Lock-Screen Video:** Want one vibe for your home screen and another behind your clock? Flip on "Different video on lock screen" and pick a clip just for when your phone is locked — it snaps back to your home wallpaper the moment you unlock. All from a single, lightweight engine (no battery-murdering second service). *Note: some manufacturers render their own lock-screen wallpaper and won't allow this — see the FAQ.*
 * **Smart Start Times:** Customize what your wallpaper does when you unlock your phone. Resume where you left off, restart for that dramatic intro, or jump to a random frame.
 * **One-Shot Mode:** Want a "Live Photo" vibe? Set your video to play once and freeze on the final frame. Perfect for cinematic intros.
 * **Zombillie is Here:** Fresh install? We got you covered with a default Zombillie animation so your screen isn't naked while you look for your own clips.
