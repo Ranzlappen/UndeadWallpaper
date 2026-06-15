@@ -497,8 +497,6 @@ class SettingsFragment : Fragment() {
             val isPerScreenEnabled = preferencesManager.isPerScreenEnabled()
             binding.switchPerScreen.isChecked = isPerScreenEnabled
             binding.layoutPerScreenOptions.visibility = if (isPerScreenEnabled) View.VISIBLE else View.GONE
-            // Hide controls per-screen mode overrides (no animation on initial sync).
-            applyPerScreenControlVisibility(isPerScreenEnabled, animate = false)
 
             val bridgeMode = preferencesManager.getBridgeMode()
             when (bridgeMode) {
@@ -764,11 +762,11 @@ class SettingsFragment : Fragment() {
 
             preferencesManager.setPerScreenEnabled(isChecked)
 
-            android.transition.TransitionManager.beginDelayedTransition(binding.cardPerScreen as android.view.ViewGroup)
+            // NOTE: no TransitionManager animation here. Animating layout-bounds
+            // changes across the nested RecyclerViews (screens list / recent files)
+            // makes them report a stale, oversized height mid-transition, which
+            // showed up as a big empty gap when enabling per-screen mode.
             binding.layoutPerScreenOptions.visibility = if (isChecked) View.VISIBLE else View.GONE
-
-            // Hide/show the controls per-screen mode overrides.
-            applyPerScreenControlVisibility(isChecked, animate = true)
 
             broadcastPerScreenChanged()
         }
@@ -838,22 +836,6 @@ class SettingsFragment : Fragment() {
             setPackage(requireContext().packageName)
         }
         requireContext().applicationContext.sendBroadcast(intent)
-    }
-
-    /**
-     * Hides the controls that per-screen mode silently overrides (global playback
-     * mode, start time, and the single-video preview/picker) so the UI isn't
-     * misleading. Restores them when per-screen is OFF. Chip selections are not
-     * cleared by toggling visibility, so they persist across ON/OFF.
-     */
-    private fun applyPerScreenControlVisibility(perScreenOn: Boolean, animate: Boolean) {
-        if (animate) {
-            android.transition.TransitionManager.beginDelayedTransition(binding.root as android.view.ViewGroup)
-        }
-        val v = if (perScreenOn) View.GONE else View.VISIBLE
-        binding.cardVideoPreview.visibility = v
-        binding.groupPlaybackMode.visibility = v
-        binding.groupStartTime.visibility = v
     }
 
     /** Lightweight live apply: bridge mode/image and slot edits (no player restart). */
