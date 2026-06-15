@@ -9,11 +9,10 @@
 
 **Q: Can I set a different video for the Lock Screen and the Home Screen?**
 
-**A:** No, and it is a deliberate architectural choice to protect your battery and sanity. Android’s native Live Wallpaper API is fundamentally disconnected. The system intent completely lacks destination flags (it cannot tell the app *where* it is rendering), and setting a new wallpaper from within an app natively unbinds or overrides the other screen.
+**A:** Yes! Open **Settings → Lock screen**, flip on *"Different video on lock screen"*, and pick a video from your playlist. While your phone is locked the engine plays that clip, then snaps back to your home wallpaper the instant you unlock.
 
-* **The not so clean Workarounds:** To trick the system, an app has to register two entirely separate background services. Because the app-side intent can't handle both at once, you are forced to leave the app, dive into your system menus, and blindly guess which identical service to assign to which screen.
-* **Resource Starvation:** Managing two separate services means keeping two independent video decoding instances alive in memory while simultaneously tracking two separate playlist queues. This doubles memory requirements, causes battery drain and begs the Android memory manager to assassinate the app in the background.
-* **The Verdict:** It would actually take less effort to maintain two completely separate cloned packages of the app than to hack dual-services into a single clean engine. Until Android introduces a standardized, unified API built specifically for dual-stream live wallpapers, UndeadWallpaper will remain focused on a single, perfectly optimized, lightweight pipeline.
+* **One engine, not two:** Early on this was a hard "no", because the naive approach needs two separate background services (double the video decoders, double the playlists, double the battery drain, and a one-way ticket to getting your app assassinated by the memory manager). We avoided all of that: there is still a *single* optimized pipeline that simply swaps which video it plays based on the keyguard state. No second service, no doubled memory.
+* **The big caveat (Xiaomi/POCO/Redmi/HyperOS, and some others):** Some manufacturers render their *own* separate wallpaper on the lock screen and never hand it to third-party live wallpapers. On those devices the feature can't take effect no matter what an app does. See the Xiaomi lock-screen workaround below — if you can get UndeadWallpaper showing on the lock screen at all, this feature will work; if the OS refuses to show live wallpapers there, it won't.
 
 **Q: I enabled Home Screen Gestures (Double/Triple Tap), but nothing happens when I tap!**
 
@@ -36,6 +35,13 @@
 **A:** UndeadWallpaper actively extracts Material You colors and sends a direct suggestion to your system. If your icons look wrong, your OS is ignoring the app.
 
 * **Samsung Users:** The One UI 8.5 update broke compatibility and ignores standard Android color codes. Instead, it forcefully scans the screen and tries to guess the colors on its own. This still works flawlessly on Pixels, vanilla Android, and older One UI versions, but for modern Samsung devices, it is an unfixable OS quirk for now.
+
+**Q: I change the Accent Color setting, but my system theme color never updates. (Xiaomi/HyperOS)**
+
+**A:** This is an OS-side caching quirk, not a missing feature. When you tap an accent option the app immediately saves it and tells the system its colors changed (the standard Android `notifyColorsChanged` call). On Pixels and vanilla Android the system re-reads the palette right away. HyperOS (and a few other heavy skins) **cache the wallpaper palette** and ignore that live notification — they only re-read colors when a wallpaper is freshly *applied*. There is no public Android API for an app to force that re-read.
+
+* **The Workaround:** Pick your accent, then re-apply the wallpaper (re-select UndeadWallpaper from the wallpaper picker) so the OS re-reads the palette.
+* **A note on "Off":** Because the system caches the last palette, turning the accent *Off* can leave the previously-pushed color in place until something else re-themes your system — there's no app-side way to shove the manufacturer's original default back in.
 
 **Q: The file picker doesn't show video thumbnails, or the picker is missing entirely!**
 

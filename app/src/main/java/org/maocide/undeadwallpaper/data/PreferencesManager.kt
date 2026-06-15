@@ -78,6 +78,10 @@ class PreferencesManager(context: Context) {
         private const val KEY_BRIDGE_MODE = "per_screen_bridge_mode"
         private const val KEY_SHARED_BRIDGE_IMAGE = "per_screen_shared_image"
         private const val KEY_SCREEN_SLOTS = "per_screen_slots"
+
+        // Lock-screen wallpaper feature
+        private const val KEY_LOCK_VIDEO_ENABLED = "lock_video_enabled"
+        private const val KEY_LOCK_VIDEO_FILENAME = "lock_video_filename"
     }
 
     init {
@@ -443,6 +447,30 @@ class PreferencesManager(context: Context) {
     fun saveScreenSlots(slots: List<ScreenSlot>) {
         val jsonString = jsonParser.encodeToString(slots)
         sharedPrefs.edit(commit = true) { putString(KEY_SCREEN_SLOTS, jsonString) }
+    }
+
+    // ---------------------------------------------------------------------
+    // Lock-screen wallpaper
+    // ---------------------------------------------------------------------
+
+    fun setLockVideoEnabled(enabled: Boolean) {
+        sharedPrefs.edit { putBoolean(KEY_LOCK_VIDEO_ENABLED, enabled) }
+    }
+
+    fun isLockVideoEnabled(): Boolean {
+        return sharedPrefs.getBoolean(KEY_LOCK_VIDEO_ENABLED, false)
+    }
+
+    /** Filename (in the app videos dir) of the video to play on the lock screen, or null. */
+    fun setLockVideoFileName(fileName: String?) {
+        sharedPrefs.edit {
+            if (fileName.isNullOrBlank()) remove(KEY_LOCK_VIDEO_FILENAME)
+            else putString(KEY_LOCK_VIDEO_FILENAME, fileName)
+        }
+    }
+
+    fun getLockVideoFileName(): String? {
+        return sharedPrefs.getString(KEY_LOCK_VIDEO_FILENAME, null)
     }
 
 }

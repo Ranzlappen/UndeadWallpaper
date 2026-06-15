@@ -173,6 +173,8 @@
     <string name="per_screen_screens_label">Screens</string>
     <string name="per_screen_screens_instructions">Screen 1 is your first home page, Screen 2 the next, and so on. Extra pages reuse the last screen.</string>
     <string name="per_screen_add_screen">Add screen</string>
+    <string name="per_screen_apply">Apply layout</string>
+    <string name="per_screen_applied">Per-screen layout applied</string>
     <string name="per_screen_remove_screen">Remove</string>
     <string name="per_screen_screen_number">Screen %1$d</string>
     <string name="per_screen_pick_video">Choose video</string>
@@ -185,5 +187,14 @@
     <string name="per_screen_thumbnail_description">Selected bridge image</string>
     <string name="per_screen_drag_handle_description">Drag to reorder screen</string>
     <string name="per_screen_video_thumbnail_description">Selected video</string>
+
+    <!-- Lock-screen wallpaper -->
+    <string name="lock_screen_card_title">Lock screen</string>
+    <string name="lock_screen_toggle_label">Different video on lock screen</string>
+    <string name="lock_screen_description">Play a separate video while the phone is locked, and return to your home wallpaper when unlocked. Note: some devices use their own separate lock-screen wallpaper, where this can\'t take effect.</string>
+    <string name="lock_screen_choose_video">Choose lock-screen video</string>
+    <string name="lock_screen_no_video">No video selected</string>
+    <string name="lock_screen_select_video_title">Select a lock-screen video</string>
+    <string name="lock_screen_icon_description">Lock screen</string>
 
 </resources>
