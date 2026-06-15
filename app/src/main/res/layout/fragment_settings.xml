@@ -844,6 +844,15 @@
                         android:text="@string/per_screen_add_screen"
                         app:icon="@android:drawable/ic_input_add" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/button_apply_per_screen"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/per_screen_apply"
+                        app:cornerRadius="24dp"
+                        app:icon="@android:drawable/ic_menu_set_as" />
+
                 </LinearLayout>
 
             </LinearLayout>

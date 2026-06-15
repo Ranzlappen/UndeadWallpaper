@@ -796,6 +796,15 @@ class SettingsFragment : Fragment() {
             addScreenSlot()
         }
 
+        // Force a full re-apply of the per-screen layout. Edits already apply live,
+        // but some launchers don't pick up changes until the wallpaper is rebuilt,
+        // so this gives the user an explicit, reliable "push it now" action.
+        binding.buttonApplyPerScreen.setOnClickListener {
+            saveScreenSlots()
+            broadcastPerScreenChanged()
+            Toast.makeText(requireContext(), R.string.per_screen_applied, Toast.LENGTH_SHORT).show()
+        }
+
         // Video Picker
         binding.buttonPickVideo.setOnClickListener {
             checkPermissionAndOpenFilePicker()

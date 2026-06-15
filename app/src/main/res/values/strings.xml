@@ -173,6 +173,8 @@
     <string name="per_screen_screens_label">Screens</string>
     <string name="per_screen_screens_instructions">Screen 1 is your first home page, Screen 2 the next, and so on. Extra pages reuse the last screen.</string>
     <string name="per_screen_add_screen">Add screen</string>
+    <string name="per_screen_apply">Apply layout</string>
+    <string name="per_screen_applied">Per-screen layout applied</string>
     <string name="per_screen_remove_screen">Remove</string>
     <string name="per_screen_screen_number">Screen %1$d</string>
     <string name="per_screen_pick_video">Choose video</string>
